@@ -32,18 +32,6 @@ Production-ready, serverless integration service that receives PLAUD transcript-
 
 ---
 
-## Features
-
-- **Serverless Architecture**: Configured with `serverless.yml` for AWS Lambda + API Gateway deployment.
-- **Strict User Mapping**: Explicit resolution using primary stable PLAUD User ID, with controlled normalized email fallback. Ambiguous or missing mappings are automatically quarantined.
-- **Idempotent Webhook Processing**: Deterministic composite fingerprinting (`sha256(plaudUserId + startTime + title)`) and SHA-256 content hashing (`sourceHash`) prevents duplicate submissions and detects payload drift.
-- **Atomic Concurrency Control**: MongoDB atomic `findOneAndUpdate` state transitions (`READY` / `RETRY_PENDING` -> `PROCESSING`) prevent duplicate concurrent workers. Stale lock recovery built-in.
-- **Resilient Retry Policy**: Exponential backoff with jitter, honoring standard `Retry-After` headers. Permanent errors fail fast without exhausting resources.
-- **Immutable Audit Trail**: All state transitions, manual requeues, and mapping updates recorded in `audit_logs` without storing sensitive credentials or full transcript bodies.
-- **Proof of Concept Mode**: Toggleable `POC_MODE_ENABLED` flag restricts processing to designated pilot users.
-
----
-
 ## API Reference
 
 All endpoints are prefixed with `/api/v1`.
@@ -57,19 +45,20 @@ All endpoints are prefixed with `/api/v1`.
   - **Body**:
     ```json
     {
-      "meetingId": "plaud_meeting_1001",
-      "title": "Client Enterprise Demo",
-      "startTime": "2026-09-21T10:00:00Z",
-      "endTime": "2026-09-21T10:45:00Z",
-      "plaudUserId": "plaud_usr_abc123",
-      "email": "rep@company.com",
-      "recordingUrl": "https://storage.plaud.ai/recordings/rec_1001.mp3",
-      "transcript": "Speaker 1: Welcome everyone...",
-      "summary": "Key discussion on enterprise rollout."
+      "user": {
+        "name": "name",
+        "email": "email",
+    },
+    "plaud_data": {
+      "title": "title",
+      "summary": "summary",
+      "transcript": "transcript",
+      "create_time": "createTime",
+    }
     }
     ```
 
-### 2. Meetings (Admin/Operator)
+<!-- ### 2. Meetings (Admin/Operator)
 - **`GET /api/v1/meetings`**: Filter meetings by `userId`, `status`, `source`, `startDate`, `endDate`, `page`, `limit`.
 - **`GET /api/v1/meetings/:id`**: View canonical meeting record, transcript, and delivery history.
 - **`POST /api/v1/meetings/:id/retry`**: Manually requeue a `FAILED` or `QUARANTINED` meeting.
@@ -86,9 +75,9 @@ All endpoints are prefixed with `/api/v1`.
       "sybillEmail": "rep@company.com",
       "status": "verified"
     }
-    ```
+    ``` -->
 
-### 4. Health & Monitoring
+### 2. Health & Monitoring
 - **`GET /api/v1/health`**: Returns system liveness and MongoDB readiness status.
 
 ---
