@@ -52,7 +52,7 @@ All endpoints are prefixed with `/api/v1`.
     ```
 
 ### 2. Health & Monitoring
-- **`GET /api/v1/health`**: Returns system liveness and MongoDB readiness status.
+- **`GET /`**: Returns system liveness and MongoDB readiness status.
 
 ---
 
