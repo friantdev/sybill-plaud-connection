@@ -13,21 +13,14 @@ Production-ready, serverless integration service that receives PLAUD transcript-
 [Zapier Webhook Action]
    │ POST /api/v1/webhooks/plaud
    ▼
-[AWS API Gateway] ──► [Lambda: api (Express.js via serverless-http)]
+[API Gateway] ──► [api (Express.js)]
                             │
                             ├── 1. Verify Webhook Secret/Signature & Timestamp
-                            ├── 2. Calculate Idempotency Key & sourceHash
-                            ├── 3. Resolve User Mapping (PLAUD ID -> Sybill ID)
-                            │      ├─ Matched: Status -> READY
-                            │      └─ Unmatched: Status -> QUARANTINED
-                            ├── 4. Store Meeting, Transcript & Summary in MongoDB
-                            └── 5. Dispatch Sybill Delivery (Atomic Claim)
+                            ├── 2. Store Meeting, Transcript & Summary in MongoDB
+                            └── 3. Dispatch Sybill Delivery (Atomic Claim)
                                    ├─ 2xx: Status -> SUBMITTED
                                    ├─ 429/5xx: Status -> RETRY_PENDING (Backoff + Jitter)
                                    └─ 4xx: Status -> FAILED
-
-[EventBridge Schedule] ──► [Lambda: retryWorker (every 5m)]
-                            └── Process READY / RETRY_PENDING / Stale Locks
 ```
 
 ---
@@ -57,25 +50,6 @@ All endpoints are prefixed with `/api/v1`.
     }
     }
     ```
-
-<!-- ### 2. Meetings (Admin/Operator)
-- **`GET /api/v1/meetings`**: Filter meetings by `userId`, `status`, `source`, `startDate`, `endDate`, `page`, `limit`.
-- **`GET /api/v1/meetings/:id`**: View canonical meeting record, transcript, and delivery history.
-- **`POST /api/v1/meetings/:id/retry`**: Manually requeue a `FAILED` or `QUARANTINED` meeting.
-
-### 3. Users & Mappings (Admin)
-- **`GET /api/v1/users`**: List sales users and their active mapping status.
-- **`PUT /api/v1/users/:id/mapping`**: Create or update verified PLAUD-to-Sybill mapping. Automatically requeues affected quarantined meetings.
-  - **Body**:
-    ```json
-    {
-      "plaudUserId": "plaud_usr_abc123",
-      "plaudEmail": "rep@company.com",
-      "sybillUserId": "sybill_usr_xyz789",
-      "sybillEmail": "rep@company.com",
-      "status": "verified"
-    }
-    ``` -->
 
 ### 2. Health & Monitoring
 - **`GET /api/v1/health`**: Returns system liveness and MongoDB readiness status.
