@@ -1,0 +1,33 @@
+{
+  "name": "plaud-to-sybill-integration",
+  "version": "1.0.0",
+  "description": "",
+  "main": "handler.js",
+  "scripts": {
+    "start": "node local.js",
+    "dev": "node --watch local.js",
+    "test": "node --test tests/**/*.test.js",
+    "build": "echo 'Ready'"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/devout27/plaud-to-sybill-integration.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/devout27/plaud-to-sybill-integration/issues"
+  },
+  "homepage": "https://github.com/devout27/plaud-to-sybill-integration#readme",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.1",
+    "express": "^5.2.1",
+    "express-validator": "^7.3.2",
+    "helmet": "^8.3.0",
+    "mongoose": "^9.10.1",
+    "serverless-http": "^4.0.0"
+  }
+}

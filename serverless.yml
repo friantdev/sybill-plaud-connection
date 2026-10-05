@@ -1,0 +1,54 @@
+service: plaud-to-sybill-integration
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: ${opt:region, 'us-east-1'}
+  stage: ${opt:stage, 'dev'}
+  memorySize: 512
+  timeout: 30
+  environment:
+    NODE_ENV: ${opt:stage, 'dev'}
+    DB_MONGODB_URI: ${env:DB_MONGODB_URI}
+    WEBHOOK_SECRET: ${env:WEBHOOK_SECRET}
+    WEBHOOK_MAX_AGE_SECONDS: ${env:WEBHOOK_MAX_AGE_SECONDS, '300'}
+    ADMIN_API_KEY: ${env:ADMIN_API_KEY}
+    SYBILL_API_BASE_URL: ${env:SYBILL_API_BASE_URL, 'https://api.sybill.ai/v1'}
+    SYBILL_API_KEY: ${env:SYBILL_API_KEY}
+    SYBILL_IMPORT_ENDPOINT: ${env:SYBILL_IMPORT_ENDPOINT, '/conversations/import'}
+    SYBILL_REQUEST_TIMEOUT_MS: ${env:SYBILL_REQUEST_TIMEOUT_MS, '15000'}
+    MAX_DELIVERY_ATTEMPTS: ${env:MAX_DELIVERY_ATTEMPTS, '5'}
+    RETRY_INITIAL_DELAY_MS: ${env:RETRY_INITIAL_DELAY_MS, '2000'}
+    RETRY_MAX_DELAY_MS: ${env:RETRY_MAX_DELAY_MS, '60000'}
+    RETRY_BACKOFF_FACTOR: ${env:RETRY_BACKOFF_FACTOR, '2'}
+    RETRY_JITTER_RATIO: ${env:RETRY_JITTER_RATIO, '0.2'}
+    POC_MODE_ENABLED: ${env:POC_MODE_ENABLED, 'false'}
+
+functions:
+  api:
+    handler: handler.api
+    events:
+      - http:
+          path: /
+          method: ANY
+          cors: true
+      - http:
+          path: /{proxy+}
+          method: ANY
+          cors: true
+
+  retryWorker:
+    handler: handler.retryWorker
+    description: Periodic worker to deliver ready and retry_pending meetings to Sybill
+    events:
+      # Run every 5 minutes
+      - schedule: rate(5 minutes)
+
+package:
+  patterns:
+    - '!tests/**'
+    - '!.git/**'
+    - '!README.md'
+    - '!*.md'
