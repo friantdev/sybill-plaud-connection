@@ -21,16 +21,7 @@ export async function handleWebhook(req, res, next) {
       }
     }
 
-    console.log('>>> [handleWebhook START]', {
-      method: req.method,
-      url: req.url,
-      originalUrl: req.originalUrl,
-      bodyType: typeof payload,
-      isBodyArray: Array.isArray(payload),
-      dbReadyState: mongoose.connection.readyState,
-      dbName: mongoose.connection.name,
-      payloadPreview: payload ? JSON.stringify(payload).slice(0, 300) : null,
-    });
+    console.log(`>>> [Webhook Ingest]: Received ${req.method} request on ${req.originalUrl || req.url}`);
 
     // 1. Normalize payload (Zapier may send an array or an object)
     const item = Array.isArray(payload) ? payload[0] : payload;
@@ -50,16 +41,56 @@ export async function handleWebhook(req, res, next) {
       });
     }
 
+    // 2. Webhook Secret Verification
+    if (config.WEBHOOK_SECRET) {
+      const configuredSecret = String(config.WEBHOOK_SECRET).trim();
+      const bodySecret =
+        typeof payload === 'object' && payload !== null
+          ? payload.secret || payload.webhook_secret || payload.token || payload.apiKey || item?.secret || item?.webhook_secret
+          : null;
+
+      const providedSecret =
+        req.headers['x-webhook-secret'] ||
+        req.headers['x-plaud-secret'] ||
+        req.headers['x-api-key'] ||
+        req.query?.secret ||
+        req.query?.token ||
+        req.query?.apiKey ||
+        bodySecret;
+
+      const authHeader = req.headers['authorization'] || '';
+      const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.substring(7).trim() : null;
+
+      const isSecretValid = providedSecret === configuredSecret || bearerToken === configuredSecret;
+      if (!isSecretValid) {
+        console.warn('>>> [Unauthorized Webhook Rejected]: Invalid or missing secret');
+        await Log.create({
+          event: 'webhook_auth_failed',
+          level: 'warn',
+          message: 'Unauthorized webhook attempt: invalid or missing secret',
+          data: {
+            ip: req.ip,
+            url: req.originalUrl,
+          },
+        });
+
+        return res.status(401).json({
+          success: false,
+          error: 'Unauthorized',
+          message: 'Invalid or missing webhook secret',
+        });
+      }
+    } else if (config.NODE_ENV === 'production') {
+      console.error('❌ [SECURITY ERROR] WEBHOOK_SECRET is not configured in production environment.');
+      return res.status(500).json({
+        success: false,
+        error: 'Server Misconfiguration',
+        message: 'WEBHOOK_SECRET is not configured on the server',
+      });
+    }
+
     const { user, plaud_data, id: rawPlaudId, runtime_meta } = item;
     const plaudId = rawPlaudId ? String(rawPlaudId).trim() : null;
-
-    console.log('>>> [Parsed Item]:', {
-      plaudId,
-      hasUser: !!user,
-      userEmail: user?.email,
-      hasPlaudData: !!plaud_data,
-      plaudTitle: plaud_data?.title,
-    });
 
     // 2. Validate user object
     if (!user || !user.email) {
@@ -167,19 +198,34 @@ export async function handleWebhook(req, res, next) {
       ? new Date(plaud_data.create_time).toISOString()
       : new Date().toISOString();
 
-    // Sybill owner must be a participant for "My Meetings" dashboard visibility
-    const sybillOwnerEmail = 'speaker2@yopmail.com';
-    const sybillOwnerName = 'Speaker2';
+    const sybillOwnerEmail = (config.SYBILL_OWNER_EMAIL || 'jignesh.borisa@friant.com').trim().toLowerCase();
 
-    // Build participants: always include the Sybill owner first,
-    // then add the PLAUD user as an external participant if different
+    // Build participants: always include the PLAUD user
     const participantsList = [
-      { email: sybillOwnerEmail, name: sybillOwnerName },
-      { email: 'speaker3@yopmail.com', name: 'Speaker3' }
+      { email: cleanEmail, name: cleanName }
     ];
 
-    if (cleanEmail.toLowerCase() !== sybillOwnerEmail.toLowerCase()) {
-      participantsList.push({ email: cleanEmail, name: cleanName });
+    // Include the configured Sybill owner if different from the webhook user
+    if (sybillOwnerEmail && cleanEmail !== sybillOwnerEmail) {
+      participantsList.push({
+        email: sybillOwnerEmail,
+        name: sybillOwnerEmail.split('@')[0],
+      });
+    }
+
+    // Include any additional participants passed by PLAUD
+    if (Array.isArray(plaud_data.participants)) {
+      for (const p of plaud_data.participants) {
+        if (p?.email) {
+          const pEmail = p.email.trim().toLowerCase();
+          if (!participantsList.some((item) => item.email.toLowerCase() === pEmail)) {
+            participantsList.push({
+              email: pEmail,
+              name: p.name ? p.name.trim() : pEmail.split('@')[0],
+            });
+          }
+        }
+      }
     }
 
     const sybillPayload = {
@@ -188,15 +234,15 @@ export async function handleWebhook(req, res, next) {
       displayName: plaud_data.title || 'Untitled PLAUD Meeting',
       createdAt: startTimeIso,
       startedAt: startTimeIso,
-      endedAt: plaud_data.endedAt || undefined,
+      endedAt: plaud_data.endedAt || plaud_data.endTime || plaud_data.end_time || undefined,
       participants: participantsList,
       recordingUrl: plaud_data.recordingUrl || plaud_data.recording_url || undefined,
       transcript: plaud_data.transcript || undefined,
       public: true,
-      ownerEmails: ["jignesh.borisa@friant.com"],
+      ownerEmails: [sybillOwnerEmail],
     };
 
-    console.log('>>> [Submitting to Sybill Conversations API]:\n', JSON.stringify(sybillPayload, null, 2));
+    console.log(`>>> [Submitting to Sybill API]: Meeting "${sybillPayload.displayName}" with ${sybillPayload.participants?.length || 0} participants`);
 
     // 8. Submit conversation to Sybill
     const sybillResult = await createSybillConversation(sybillPayload);

@@ -312,28 +312,94 @@ export async function createSybillConversation(conversationData) {
     }
   }
 
-  // Ensure all unique speakers from transcript are listed as participants
+  // Ensure all unique speakers from transcript are listed as participants with speakerN@yopmail.com email
   const participantsList = [...(conversationData.participants || [])];
+  const existingEmails = new Set(
+    participantsList.filter((p) => p.email).map((p) => p.email.toLowerCase().trim())
+  );
   const existingNames = new Set(
-    participantsList.map((p) => (p.name || '').toLowerCase().replace(/\s+/g, ''))
+    participantsList.filter((p) => p.name).map((p) => p.name.toLowerCase().replace(/\s+/g, ''))
   );
 
-  if (formattedTranscript) {
+  // 1. Identify unique transcript speakers
+  const transcriptSpeakersMap = new Map();
+  if (formattedTranscript && Array.isArray(formattedTranscript)) {
     for (const seg of formattedTranscript) {
       const spk = seg.speaker || seg.speaker_name || seg.speakerName;
-      if (spk) {
-        const normalized = spk.toLowerCase().replace(/\s+/g, '');
-        if (!existingNames.has(normalized)) {
-          existingNames.add(normalized);
-          const emailSlug = spk.toLowerCase().replace(/[^a-z0-9]/g, '');
-          participantsList.push({
-            name: spk,
-            email: `${emailSlug}@yopmail.com`,
-          });
+      if (spk && typeof spk === 'string' && spk.trim()) {
+        const trimmedSpk = spk.trim();
+        const normalized = trimmedSpk.toLowerCase().replace(/\s+/g, '');
+        if (!transcriptSpeakersMap.has(normalized)) {
+          transcriptSpeakersMap.set(normalized, trimmedSpk);
         }
       }
     }
   }
+
+  // 2. Add each unique speaker to participantsList with speakerN@yopmail.com email
+  const uniqueSpeakers = Array.from(transcriptSpeakersMap.values());
+  for (const speakerName of uniqueSpeakers) {
+    const normalized = speakerName.toLowerCase().replace(/\s+/g, '');
+    const cleanSlug = speakerName.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const email = `${cleanSlug || 'speaker'}@yopmail.com`;
+
+    const existingIndex = participantsList.findIndex(
+      (p) =>
+        (p.name && p.name.toLowerCase().replace(/\s+/g, '') === normalized) ||
+        (p.email && p.email.toLowerCase().trim() === email)
+    );
+
+    if (existingIndex >= 0) {
+      if (!participantsList[existingIndex].email) {
+        participantsList[existingIndex].email = email;
+      }
+    } else {
+      participantsList.push({
+        name: speakerName,
+        email: email,
+      });
+      existingNames.add(normalized);
+      existingEmails.add(email);
+    }
+  }
+
+  // 3. Sybill participant condition:
+  // If 1 or 2 transcript speakers exist, add dummy participant(s) to reach 3 speakers.
+  // If 3 or more transcript speakers exist, do NOT add any dummy participant.
+  if (uniqueSpeakers.length < 3) {
+    const existingSpeakerNums = new Set();
+    for (const speakerName of uniqueSpeakers) {
+      const match = speakerName.match(/Speaker\s*(\d+)/i);
+      if (match) {
+        existingSpeakerNums.add(parseInt(match[1], 10));
+      }
+    }
+
+    let currentSpeakerCount = uniqueSpeakers.length;
+    let candidateNum = 1;
+
+    while (currentSpeakerCount < 3) {
+      if (!existingSpeakerNums.has(candidateNum)) {
+        const dummyName = `Speaker ${candidateNum}`;
+        const dummyEmail = `speaker${candidateNum}@yopmail.com`;
+        const dummyNormalized = dummyName.toLowerCase().replace(/\s+/g, '');
+
+        if (!existingNames.has(dummyNormalized) && !existingEmails.has(dummyEmail)) {
+          participantsList.push({
+            name: dummyName,
+            email: dummyEmail,
+          });
+          existingNames.add(dummyNormalized);
+          existingEmails.add(dummyEmail);
+          existingSpeakerNums.add(candidateNum);
+          currentSpeakerCount++;
+        }
+      }
+      candidateNum++;
+    }
+  }
+
+  const defaultOwner = (config.SYBILL_OWNER_EMAIL || 'jignesh.borisa@friant.com').trim().toLowerCase();
 
   const body = {
     id: conversationData.id,
@@ -346,7 +412,7 @@ export async function createSybillConversation(conversationData) {
     recordingUrl: conversationData.recordingUrl || undefined,
     transcript: formattedTranscript,
     public: conversationData.public !== undefined ? conversationData.public : true,
-    ownerEmails: conversationData.ownerEmails || ["jignesh.borisa@friant.com"],
+    ownerEmails: conversationData.ownerEmails?.length ? conversationData.ownerEmails : [defaultOwner],
   };
 
   // Remove undefined keys from body
@@ -367,13 +433,7 @@ export async function createSybillConversation(conversationData) {
   const timeoutId = setTimeout(() => controller.abort(), config.SYBILL_REQUEST_TIMEOUT_MS);
 
   try {
-    console.log('==================== [SYBILL API POSTMAN PAYLOAD] ====================');
-    console.log('Method: POST');
-    console.log('URL:', url);
-    console.log('Headers:', JSON.stringify(headers, null, 2));
-    console.log('Body (JSON raw payload for Postman):');
-    console.log(JSON.stringify(body, null, 2));
-    console.log('======================================================================');
+    console.log(`>>> [Sybill API Ingestion]: Sending conversation "${body.id}" (${body.displayName}) with ${body.participants?.length || 0} participants and ${body.transcript?.length || 0} transcript turns.`);
 
     const response = await fetch(url, {
       method: 'POST',
