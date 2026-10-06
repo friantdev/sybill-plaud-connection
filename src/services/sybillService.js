@@ -434,6 +434,13 @@ export async function createSybillConversation(conversationData) {
 
   try {
     console.log(`>>> [Sybill API Ingestion]: Sending conversation "${body.id}" (${body.displayName}) with ${body.participants?.length || 0} participants and ${body.transcript?.length || 0} transcript turns.`);
+    console.log('>>> [Sybill API Request Payload Summary]:', JSON.stringify({
+      id: body.id,
+      displayName: body.displayName,
+      participants: body.participants,
+      ownerEmails: body.ownerEmails,
+      transcriptTurnCount: body.transcript?.length || 0,
+    }, null, 2));
 
     const response = await fetch(url, {
       method: 'POST',
