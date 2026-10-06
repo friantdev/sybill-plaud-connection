@@ -363,22 +363,33 @@ export async function createSybillConversation(conversationData) {
     }
   }
 
+  const defaultOwner = (config.SYBILL_OWNER_EMAIL || 'jignesh.borisa@friant.com').trim().toLowerCase();
+
   // 3. Sybill participant condition:
-  // If 1 or 2 transcript speakers exist, add dummy participant(s) to reach 3 speakers.
-  // If 3 or more transcript speakers exist, do NOT add any dummy participant.
-  if (uniqueSpeakers.length < 3) {
+  // If 3 or more unique speakers exist in transcript, remove default owner (jignesh) from participants list
+  if (uniqueSpeakers.length >= 3) {
+    for (let i = participantsList.length - 1; i >= 0; i--) {
+      const pEmail = (participantsList[i].email || '').toLowerCase().trim();
+      if (pEmail === defaultOwner || pEmail.includes('jignesh')) {
+        participantsList.splice(i, 1);
+      }
+    }
+  }
+
+  // Fulfill Sybill minimum 3 participants requirement. If total participants in list < 3,
+  // add dummy participant(s) (Speaker 1, Speaker 2, etc.) until total participants === 3.
+  if (participantsList.length < 3) {
     const existingSpeakerNums = new Set();
-    for (const speakerName of uniqueSpeakers) {
-      const match = speakerName.match(/Speaker\s*(\d+)/i);
+    for (const p of participantsList) {
+      const match = (p.name || '').match(/Speaker\s*(\d+)/i);
       if (match) {
         existingSpeakerNums.add(parseInt(match[1], 10));
       }
     }
 
-    let currentSpeakerCount = uniqueSpeakers.length;
     let candidateNum = 1;
 
-    while (currentSpeakerCount < 3) {
+    while (participantsList.length < 3) {
       if (!existingSpeakerNums.has(candidateNum)) {
         const dummyName = `Speaker ${candidateNum}`;
         const dummyEmail = `speaker${candidateNum}@yopmail.com`;
@@ -392,14 +403,11 @@ export async function createSybillConversation(conversationData) {
           existingNames.add(dummyNormalized);
           existingEmails.add(dummyEmail);
           existingSpeakerNums.add(candidateNum);
-          currentSpeakerCount++;
         }
       }
       candidateNum++;
     }
   }
-
-  const defaultOwner = (config.SYBILL_OWNER_EMAIL || 'jignesh.borisa@friant.com').trim().toLowerCase();
 
   const body = {
     id: conversationData.id,
@@ -434,13 +442,7 @@ export async function createSybillConversation(conversationData) {
 
   try {
     console.log(`>>> [Sybill API Ingestion]: Sending conversation "${body.id}" (${body.displayName}) with ${body.participants?.length || 0} participants and ${body.transcript?.length || 0} transcript turns.`);
-    console.log('>>> [Sybill API Request Payload Summary]:', JSON.stringify({
-      id: body.id,
-      displayName: body.displayName,
-      participants: body.participants,
-      ownerEmails: body.ownerEmails,
-      transcriptTurnCount: body.transcript?.length || 0,
-    }, null, 2));
+    console.log('>>> [Sybill API Request Payload Summary]:', JSON.stringify(body));
 
     const response = await fetch(url, {
       method: 'POST',
